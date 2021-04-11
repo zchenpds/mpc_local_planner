@@ -31,6 +31,8 @@
 
 #include <interactive_markers/interactive_marker_server.h>
 #include <visualization_msgs/Marker.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include <memory>
 
@@ -50,10 +52,15 @@ class TestMpcOptimNode
     void CB_customObstacle(const costmap_converter::ObstacleArrayMsg::ConstPtr& obst_msg);
     void CB_clicked_points(const geometry_msgs::PointStampedConstPtr& point_msg);
     void CB_via_points(const nav_msgs::Path::ConstPtr& via_points_msg);
+    void CB_initial_pose(const geometry_msgs::PoseWithCovarianceStamped& pose);
+    void CB_goal_pose(const geometry_msgs::PoseStamped& pose);
 
     teb_local_planner::ObstContainer _obstacles;
     int _no_fixed_obstacles;
     std::vector<teb_local_planner::PoseSE2> _via_points;
+
+    teb_local_planner::PoseSE2 x0{0, 0, 0};
+    teb_local_planner::PoseSE2 xf{5, 2, 0};
 };
 
 void TestMpcOptimNode::start(ros::NodeHandle& nh)
@@ -90,6 +97,12 @@ void TestMpcOptimNode::start(ros::NodeHandle& nh)
     // setup callback for via-points (callback overwrites previously set via-points)
     ros::Subscriber via_points_sub = nh.subscribe("via_points", 1, &TestMpcOptimNode::CB_via_points, this);
 
+    // setup callback for start pose
+    ros::Subscriber initial_pose_sub = nh.subscribe("/initialpose", 1, &TestMpcOptimNode::CB_initial_pose, this);
+
+    // setup callback for goal pose
+    ros::Subscriber goal_pose_sub = nh.subscribe("/move_base_simple/goal", 1, &TestMpcOptimNode::CB_goal_pose, this);
+
     // Setup robot shape model
     teb_local_planner::RobotFootprintModelPtr robot_model = mpc_local_planner::MpcLocalPlannerROS::getRobotFootprintFromParamServer(nh);
 
@@ -101,9 +114,6 @@ void TestMpcOptimNode::start(ros::NodeHandle& nh)
     }
 
     mpc::Publisher publisher(nh, controller.getRobotDynamics(), map_frame);
-
-    teb_local_planner::PoseSE2 x0(0, 0, 0);
-    teb_local_planner::PoseSE2 xf(5, 2, 0);
 
     corbo::TimeSeries::Ptr x_seq = std::make_shared<corbo::TimeSeries>();
     corbo::TimeSeries::Ptr u_seq = std::make_shared<corbo::TimeSeries>();
@@ -248,6 +258,19 @@ void TestMpcOptimNode::CB_via_points(const nav_msgs::Path::ConstPtr& via_points_
     {
         _via_points.emplace_back(pose.pose.position.x, pose.pose.position.y, 0);
     }
+}
+
+void TestMpcOptimNode::CB_initial_pose(const geometry_msgs::PoseWithCovarianceStamped& pose)
+{
+    ROS_INFO("Initial pose received.");
+    x0 = teb_local_planner::PoseSE2(pose.pose.pose);
+}
+
+
+void TestMpcOptimNode::CB_goal_pose(const geometry_msgs::PoseStamped& pose)
+{
+    ROS_INFO("Goal pose received.");
+    xf = teb_local_planner::PoseSE2(pose.pose);
 }
 
 int main(int argc, char** argv)
